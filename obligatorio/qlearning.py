@@ -5,7 +5,6 @@ import os
 import re
 import datetime
 
-
 def max_policy(state, env, state_action_values):
     actions = env.get_legal_actions()
     act_index = np.argmax(list(map(lambda a: state_action_values.get(
@@ -39,6 +38,11 @@ class QLearner():
         self.state_action_values = dict()#key: (flatten_obs, action), value: q value
         #if needed add here more structures
         #Note: if loading fails after adding more structures, delete old saves
+        
+        self.epsilon = 0.5
+        self.alpha = 0.1
+        self.tau = 1
+        
 
         #Only for info
         self.iterations_total = 0
@@ -81,15 +85,50 @@ class QLearner():
 
         while (not(done)):
             self.states.add(s_flat)
-            raise Exception('TODO: implement')
-            a = 0  # choose action
+
+            a = self.softmax(state, env) if self.use_softmax else self.greedy(state, env)
+            
             new_state, r, done, info = env.step(a)
+            
+            if not done:
+                self.state_action_values[(s_flat, a)] = self.state_action_values.get((s_flat, a), 0)
+                self.updateQ(state, a, r, new_state, env)
+            
             win = info["win"]
             score = info["score"]
             reward_sum += r
             step_count += 1
+            state = new_state
 
         return reward_sum, step_count, win, score
+
+          
+    # def qlearning(self, niter = 1, qstrategy = None, verbose = False) :
+    #     if (qstrategy == None) : 
+    #         qstrategy = self.greedy
+    #     self.Q = { s : { a : 0 for a in self.env.action_space } for s in self.env.observation_space }
+    #     for i in range(niter) :
+    #         done = False
+    #         state = self.env.reset()
+    #         if verbose : print(state, ';')
+    #         while (not(done)) :
+    #             action = qstrategy(state = state, verbose = verbose)
+    #             _state, reward, done, _ = self.env.step(action)
+    #             if verbose : print(action, reward, _state, ';')
+    #             self.updateQ(state, action, reward, _state)
+    #             state = _state
+    #     return self.Q
+
+    def updateQ(self, state, a, r, new_state, env) :
+        _s = env.flatten_obs(new_state)
+        s = env.flatten_obs(state)
+
+        self.state_action_values[(s, a)] = self.state_action_values.get((s, a), 0) 
+
+        actions = env.get_legal_actions()
+        _qmax = np.amax([ self.state_action_values.get((_s, _a), 0) for _a in actions ])
+        self.state_action_values[(s, a)] = self.state_action_values[(s, a)] + self.alpha * (r + self.discount * _qmax - self.state_action_values[(s, a)])
+  
 
     def get_policy(self):
         state_action_values = dict(self.state_action_values)
@@ -190,3 +229,35 @@ class QLearner():
 
         with open(os.path.join(d, 'Qlearner ' + str(iteration) + ' .pkl'), 'rb') as input:
             return pickle.load(input)
+
+    def greedy(self, state, env, verbose = False) :
+        explore = np.random.binomial(1, self.epsilon)
+        if explore :
+            action = self.action_random(env)
+            if verbose : print('Explore:', action)
+        else :
+            action = self.best_Q_action(state, env)
+            if verbose : print('Experience:', action)
+        return action
+    
+    def best_Q_action(self, state, env) :
+        s = env.flatten_obs(state)
+        return env.get_legal_actions()[
+                        np.argmax([ self.state_action_values.get((s, a), 0) for a in env.get_legal_actions() ])
+                    ]
+
+    def action_random(self, env):
+        return env.get_legal_actions()[np.random.randint(low = 0, high = len(env.get_legal_actions()))]
+
+    def softmax(self, state, env, verbose = False) :
+        s = env.flatten_obs(state)
+        _exp = np.exp([ (self.state_action_values.get((s, a), 0) / self.tau) for a in env.get_legal_actions() ])
+        _probs = _exp / np.sum(_exp)
+        action = env.get_legal_actions()[np.random.multinomial(1, _probs).argmax()]
+        if verbose : 
+            if (action == self.best_Q_action(state, env)) :
+                print('Experience:', action)    
+            else :
+                print('Explore:', action)
+        return action
+    
