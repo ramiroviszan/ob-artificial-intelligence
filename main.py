@@ -70,6 +70,6 @@ def qlearning(use_softmax):
 
 
 if __name__ == '__main__':
-    miniMax()
-    #qlearning(True)
+    #miniMax()
+    qlearning(True)
     #qlearning(False)

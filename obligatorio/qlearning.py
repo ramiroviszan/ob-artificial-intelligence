@@ -39,9 +39,12 @@ class QLearner():
         #if needed add here more structures
         #Note: if loading fails after adding more structures, delete old saves
         
-        self.epsilon = 0.5
+        self.state_actions_explored = dict()
         self.alpha = 0.1
+        self.currenta_alpha = self.alpha
+        self.epsilon = 0.5
         self.tau = 1
+        self.optimize_states = True
         
 
         #Only for info
@@ -57,12 +60,14 @@ class QLearner():
         self.layout_count_last = dict()
 
     def learn_n(self, env, iterations=1000, render_mod=180, layouts=["mediumClassic"], save_mod=50, info_mod=200, verbose=False):
-
+        total_found_equivalent_states = 0
         for i in range(iterations):
+
             layout = layouts[i % len(layouts)]
-            reward_sum, step_count, win, score = self.learn(env, render_mod is not None and i % render_mod == 0,
+            reward_sum, step_count, win, score, equivalent_states = self.learn(env, render_mod is not None and i % render_mod == 0,
                                                             layout_name=layout)
 
+            total_found_equivalent_states = total_found_equivalent_states + equivalent_states
             self.update_info(layout, score, win, False)
 
             self.iterations_total += 1
@@ -73,6 +78,8 @@ class QLearner():
                 self.save()
             if (info_mod is not None and i % info_mod == 0):
                 self.print_info(True)
+            
+        print("Equivalent states found " + str(total_found_equivalent_states) + " times")
         self.print_info(True)
 
     def learn(self, env, enable_render=False, layout_name="mediumClassic"):
@@ -83,52 +90,64 @@ class QLearner():
                              layout_name=layout_name)
         s_flat = env.flatten_obs(state)
 
+        equivalent_states = 0
+        
         while (not(done)):
             self.states.add(s_flat)
 
             a = self.softmax(state, env) if self.use_softmax else self.greedy(state, env)
             
             new_state, r, done, info = env.step(a)
-            
+
+            if self.optimize_states:
+            # print("Sin rotar")
+            # print(new_state)
+            # print(env.flatten_obs(new_state))
+                for rotation in range(0, 4):
+                    #print("Rotacion " + str(rotation*90))
+                    rotatedState =  np.rot90(new_state, k=rotation, axes=(1,0))
+                    #print(rotatedState)
+                    flatten = env.flatten_obs(rotatedState)
+                    #print(flatten)
+                    #print("intersect")
+                    intersect = self.states.intersection(set([flatten])) 
+                    #print(intersect)
+                    if bool(intersect):
+                        s_flat_new = intersect.pop() 
+                        equivalent_states = equivalent_states + 1
+                        #r = r - 0.5
+                        break
+                    elif rotation == 0:
+                        s_flat_new = flatten
+                #print("final")
+                #print(s_flat_new)
+            else:
+                s_flat_new = env.flatten_obs(new_state)
+
             if not done:
-                self.state_action_values[(s_flat, a)] = self.state_action_values.get((s_flat, a), 0)
-                self.updateQ(state, a, r, new_state, env)
+                self.updateQ(s_flat, a, r, s_flat_new, env)
             
             win = info["win"]
             score = info["score"]
             reward_sum += r
             step_count += 1
             state = new_state
+            s_flat = s_flat_new
+        
+ 
+        return reward_sum, step_count, win, score, equivalent_states
 
-        return reward_sum, step_count, win, score
-
-          
-    # def qlearning(self, niter = 1, qstrategy = None, verbose = False) :
-    #     if (qstrategy == None) : 
-    #         qstrategy = self.greedy
-    #     self.Q = { s : { a : 0 for a in self.env.action_space } for s in self.env.observation_space }
-    #     for i in range(niter) :
-    #         done = False
-    #         state = self.env.reset()
-    #         if verbose : print(state, ';')
-    #         while (not(done)) :
-    #             action = qstrategy(state = state, verbose = verbose)
-    #             _state, reward, done, _ = self.env.step(action)
-    #             if verbose : print(action, reward, _state, ';')
-    #             self.updateQ(state, action, reward, _state)
-    #             state = _state
-    #     return self.Q
-
-    def updateQ(self, state, a, r, new_state, env) :
-        _s = env.flatten_obs(new_state)
-        s = env.flatten_obs(state)
-
+    def updateQ(self, s, a, r, _s, env) :
         self.state_action_values[(s, a)] = self.state_action_values.get((s, a), 0) 
 
         actions = env.get_legal_actions()
         _qmax = np.amax([ self.state_action_values.get((_s, _a), 0) for _a in actions ])
-        self.state_action_values[(s, a)] = self.state_action_values[(s, a)] + self.alpha * (r + self.discount * _qmax - self.state_action_values[(s, a)])
-  
+       
+        self.current_alpha = max(1/( 1 + self.state_actions_explored.get((s, a), 0)), self.alpha)
+       
+        self.state_action_values[(s, a)] = self.state_action_values[(s, a)] + self.current_alpha * (r + self.discount * _qmax - self.state_action_values[(s, a)])
+        
+        self.state_actions_explored[(s, a)] = self.state_actions_explored.get((s, a), 0) + 1
 
     def get_policy(self):
         state_action_values = dict(self.state_action_values)

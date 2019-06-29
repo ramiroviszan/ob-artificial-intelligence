@@ -7,7 +7,20 @@ def evaluationFunction(currentGameState):
       The score is the same one displayed in the Pacman GUI.
 
     """
-    return currentGameState.getScore()
+    px, py = currentGameState.getPacmanPosition()
+    currentFood = currentGameState.getFood()
+
+    minDistance = currentFood.width + currentFood.height + 1
+    for x in range(0, currentFood.width):
+      for y in range(0, currentFood.height):
+        if currentFood[x][y] == True:
+          xdist = abs(x - px)
+          ydist = abs(y - py)
+          currentDistance = xdist + ydist
+          if minDistance > currentDistance:
+            minDistance = currentDistance
+
+    return currentGameState.getScore() + (currentFood.width + currentFood.height + - minDistance)
 
 
 def getAction(gameState, d):
