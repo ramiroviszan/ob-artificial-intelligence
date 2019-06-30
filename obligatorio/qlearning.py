@@ -44,7 +44,7 @@ class QLearner():
         self.currenta_alpha = self.alpha
         self.epsilon = 0.5
         self.tau = 1
-        self.optimize_states = True
+        self.optimize_states = False
         
 
         #Only for info
@@ -95,7 +95,7 @@ class QLearner():
         while (not(done)):
             self.states.add(s_flat)
 
-            a = self.softmax(state, env) if self.use_softmax else self.greedy(state, env)
+            a = self.softmax(s_flat, env) if self.use_softmax else self.greedy(s_flat, env)
             
             new_state, r, done, info = env.step(a)
 
@@ -124,8 +124,7 @@ class QLearner():
             else:
                 s_flat_new = env.flatten_obs(new_state)
 
-            if not done:
-                self.updateQ(s_flat, a, r, s_flat_new, env)
+            self.updateQ(s_flat, a, r, s_flat_new, env, done)
             
             win = info["win"]
             score = info["score"]
@@ -137,15 +136,16 @@ class QLearner():
  
         return reward_sum, step_count, win, score, equivalent_states
 
-    def updateQ(self, s, a, r, _s, env) :
+    def updateQ(self, s, a, r, _s, env, done) :
         self.state_action_values[(s, a)] = self.state_action_values.get((s, a), 0) 
+        previousQ = self.state_action_values[(s, a)]
 
         actions = env.get_legal_actions()
-        _qmax = np.amax([ self.state_action_values.get((_s, _a), 0) for _a in actions ])
-       
+        _qmax = np.amax([ self.state_action_values.get((_s, _a), 0) for _a in actions ]) if not done else 0
+
         self.current_alpha = max(1/( 1 + self.state_actions_explored.get((s, a), 0)), self.alpha)
        
-        self.state_action_values[(s, a)] = self.state_action_values[(s, a)] + self.current_alpha * (r + self.discount * _qmax - self.state_action_values[(s, a)])
+        self.state_action_values[(s, a)] = previousQ + self.current_alpha * (r + self.discount * _qmax - previousQ)
         
         self.state_actions_explored[(s, a)] = self.state_actions_explored.get((s, a), 0) + 1
 
@@ -249,18 +249,17 @@ class QLearner():
         with open(os.path.join(d, 'Qlearner ' + str(iteration) + ' .pkl'), 'rb') as input:
             return pickle.load(input)
 
-    def greedy(self, state, env, verbose = False) :
+    def greedy(self, s, env, verbose = False) :
         explore = np.random.binomial(1, self.epsilon)
         if explore :
             action = self.action_random(env)
             if verbose : print('Explore:', action)
         else :
-            action = self.best_Q_action(state, env)
+            action = self.best_Q_action(s, env)
             if verbose : print('Experience:', action)
         return action
     
-    def best_Q_action(self, state, env) :
-        s = env.flatten_obs(state)
+    def best_Q_action(self, s, env) :
         return env.get_legal_actions()[
                         np.argmax([ self.state_action_values.get((s, a), 0) for a in env.get_legal_actions() ])
                     ]
@@ -268,15 +267,11 @@ class QLearner():
     def action_random(self, env):
         return env.get_legal_actions()[np.random.randint(low = 0, high = len(env.get_legal_actions()))]
 
-    def softmax(self, state, env, verbose = False) :
-        s = env.flatten_obs(state)
-        _exp = np.exp([ (self.state_action_values.get((s, a), 0) / self.tau) for a in env.get_legal_actions() ])
-        _probs = _exp / np.sum(_exp)
-        action = env.get_legal_actions()[np.random.multinomial(1, _probs).argmax()]
-        if verbose : 
-            if (action == self.best_Q_action(state, env)) :
-                print('Experience:', action)    
-            else :
-                print('Explore:', action)
+    def softmax(self, s, env) :
+        actions = env.get_legal_actions()
+        values = [self.state_action_values.get((s, a), 0) / self.tau for a in actions]
+        _exp = np.exp(values - np.max(values))
+        _probs = _exp / np.sum(_exp, axis=0, keepdims=True) 
+        action = actions[np.random.choice(len(actions), p=_probs)]
         return action
     
