@@ -42,9 +42,9 @@ class QLearner():
         self.state_actions_explored = dict()
         self.alpha = 0.1
         self.currenta_alpha = self.alpha
-        self.epsilon = 0.5
+        self.epsilon = 0.1
         self.tau = 1
-        self.optimize_states = False
+        self.optimize_states = True
         
 
         #Only for info
@@ -115,7 +115,6 @@ class QLearner():
                     if bool(intersect):
                         s_flat_new = intersect.pop() 
                         equivalent_states = equivalent_states + 1
-                        #r = r - 0.5
                         break
                     elif rotation == 0:
                         s_flat_new = flatten
